@@ -6,10 +6,12 @@ export interface StockCheckResult {
   inStock: boolean | null;
 }
 
-const FETCH_OPTS = {
-  headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LiveSales/1.0)' },
-  signal: AbortSignal.timeout(8000),
-};
+function fetchOpts() {
+  return {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LiveSales/1.0)' },
+    signal: AbortSignal.timeout(8000),
+  };
+}
 
 function detectPlatform(html: string): SourcePlatform {
   if (/cdn\.shopify\.com|Shopify\.theme|shopify-section/i.test(html)) return 'shopify';
@@ -26,7 +28,7 @@ async function checkWooCommerceStock(url: string): Promise<Pick<StockCheckResult
   const origin = new URL(url).origin;
   const slug = slugFromUrl(url);
   try {
-    const res = await fetch(`${origin}/wp-json/wc/store/v1/products?slug=${encodeURIComponent(slug)}`, FETCH_OPTS);
+    const res = await fetch(`${origin}/wp-json/wc/store/v1/products?slug=${encodeURIComponent(slug)}`, fetchOpts());
     const products = await res.json();
     const product = Array.isArray(products) ? products[0] : null;
     if (!product) return { quantity: null, inStock: null };
@@ -46,7 +48,7 @@ async function checkWooCommerceStock(url: string): Promise<Pick<StockCheckResult
 async function checkShopifyAvailability(url: string): Promise<Pick<StockCheckResult, 'quantity' | 'inStock'>> {
   try {
     const jsUrl = url.replace(/\/?$/, '').replace(/\.js$/, '') + '.js';
-    const res = await fetch(jsUrl, FETCH_OPTS);
+    const res = await fetch(jsUrl, fetchOpts());
     const product = await res.json();
     const variants = Array.isArray(product?.variants) ? product.variants : [];
     if (variants.length === 0) return { quantity: null, inStock: null };
@@ -73,7 +75,7 @@ function checkGenericStock(html: string): Pick<StockCheckResult, 'quantity' | 'i
 }
 
 export async function checkCompetitorSource(url: string, knownPlatform?: SourcePlatform): Promise<StockCheckResult> {
-  const res = await fetch(url, FETCH_OPTS);
+  const res = await fetch(url, fetchOpts());
   const html = await res.text();
   const platform = knownPlatform ?? detectPlatform(html);
 
