@@ -11,19 +11,24 @@ export async function POST(req: NextRequest) {
     });
     const html = await res.text();
 
+    const decodeEntities = (s: string) => s
+      .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+      .replace(/&ndash;|&#8211;/g, '–').replace(/&mdash;|&#8212;/g, '—')
+      .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)));
+
     const extract = (patterns: RegExp[]) => {
       for (const p of patterns) {
         const m = html.match(p);
-        if (m?.[1]) return m[1].trim().replace(/<[^>]*>/g, '').substring(0, 500);
+        if (m?.[1]) return decodeEntities(m[1].trim().replace(/<[^>]*>/g, '')).substring(0, 500);
       }
       return '';
     };
 
     const name = extract([
       /<meta property="og:title" content="([^"]+)"/i,
-      /<title>([^<]+)<\/title>/i,
       /<h1[^>]*>([^<]+)<\/h1>/i,
-    ]);
+      /<title>([^<]+)<\/title>/i,
+    ]).replace(/\s*[–—|]\s*[^–—|]{1,40}$/, '');
 
     const description = extract([
       /<meta property="og:description" content="([^"]+)"/i,

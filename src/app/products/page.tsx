@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Plus, Search, Edit2, Trash2, Play, Pause, X,
-  Package, Filter, ChevronLeft, ChevronRight, Link as LinkIcon, Loader2,
+  Package, Filter, ChevronLeft, ChevronRight, Link as LinkIcon, Loader2, RefreshCw,
 } from 'lucide-react';
 import { formatCurrency, formatNumber, formatDate, cn, getStockStatus } from '@/lib/utils';
 
@@ -13,6 +13,8 @@ interface Product {
   sellingPrice: number; costPrice: number; startingQuantity: number;
   currentQuantity: number; lowStockLimit: number; status: string;
   trackingActive: boolean; trackingStartDate: string | null;
+  sourceUrl: string | null; sourcePlatform: string | null;
+  lastCheckedAt: string | null; lastKnownInStock: boolean | null;
   createdAt: string; updatedAt: string;
 }
 
@@ -38,6 +40,7 @@ export default function ProductsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [extracting, setExtracting] = useState(false);
+  const [checkingId, setCheckingId] = useState<string | null>(null);
   const limit = 12;
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -67,7 +70,10 @@ export default function ProductsPage() {
     try {
       const url = editId ? `/api/products/${editId}` : '/api/products';
       const method = editId ? 'PUT' : 'POST';
-      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      const res = await fetch(url, {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, sourceUrl: form.productUrl || undefined }),
+      });
       if (!res.ok) throw new Error((await res.json()).error);
       showToast(editId ? 'Product updated' : 'Product created');
       setShowForm(false);
@@ -102,6 +108,21 @@ export default function ProductsPage() {
     fetchProducts();
   };
 
+  const checkSource = async (p: Product) => {
+    setCheckingId(p.id);
+    try {
+      const res = await fetch(`/api/products/${p.id}/check-source`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      showToast(data.quantity != null ? `Stock now ${data.quantity}` : data.inStock != null ? (data.inStock ? 'In stock' : 'Sold out') : 'Checked — no stock signal found');
+      fetchProducts();
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Check failed', 'error');
+    } finally {
+      setCheckingId(null);
+    }
+  };
+
   const openEdit = (p: Product) => {
     setEditId(p.id);
     setForm({
@@ -109,7 +130,7 @@ export default function ProductsPage() {
       category: p.category || '', brand: p.brand || '', sku: p.sku || '',
       sellingPrice: String(p.sellingPrice), costPrice: String(p.costPrice),
       startingQuantity: String(p.startingQuantity), currentQuantity: String(p.currentQuantity),
-      lowStockLimit: String(p.lowStockLimit), trackingActive: p.trackingActive, productUrl: '',
+      lowStockLimit: String(p.lowStockLimit), trackingActive: p.trackingActive, productUrl: p.sourceUrl || '',
     });
     setShowForm(true);
   };
@@ -235,14 +256,32 @@ export default function ProductsPage() {
                     {p.category && <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>{p.category}{p.brand ? ` · ${p.brand}` : ''}</p>}
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-lg font-bold text-brand-600">{formatCurrency(p.sellingPrice)}</span>
-                      <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', stock.color === 'green' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : stock.color === 'yellow' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300')}>
-                        {stock.label}
-                      </span>
+                      {p.sourcePlatform === 'shopify' ? (
+                        <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', p.lastKnownInStock === false ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300')}>
+                          {p.lastKnownInStock === false ? 'Sold Out' : 'In Stock'}
+                        </span>
+                      ) : (
+                        <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', stock.color === 'green' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : stock.color === 'yellow' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300')}>
+                          {stock.label}
+                        </span>
+                      )}
                     </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
-                      <div>Stock: <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{p.currentQuantity}</span></div>
-                      <div>Sold: <span className="font-semibold text-emerald-600">{sold > 0 ? sold : 0}</span></div>
-                    </div>
+                    {p.sourceUrl ? (
+                      <div className="flex items-center justify-between text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+                        <span className="truncate">
+                          {p.sourcePlatform || 'competitor'}{p.lastCheckedAt ? ` · checked ${formatDate(p.lastCheckedAt)}` : ' · not checked yet'}
+                        </span>
+                        <button onClick={() => checkSource(p)} disabled={checkingId === p.id}
+                          className="flex items-center gap-1 shrink-0 ml-2 text-brand-600 hover:text-brand-700 font-medium disabled:opacity-50">
+                          <RefreshCw className={cn('w-3 h-3', checkingId === p.id && 'animate-spin')} /> Check now
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2 text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+                        <div>Stock: <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{p.currentQuantity}</span></div>
+                        <div>Sold: <span className="font-semibold text-emerald-600">{sold > 0 ? sold : 0}</span></div>
+                      </div>
+                    )}
                     <div className="flex gap-1.5">
                       <button onClick={() => openEdit(p)} className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-medium border hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
                         <Edit2 className="w-3.5 h-3.5" /> Edit

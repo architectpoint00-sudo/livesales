@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     const {
       name, image, description, category, brand, sku,
       sellingPrice, costPrice, startingQuantity,
-      lowStockLimit, trackingActive,
+      lowStockLimit, trackingActive, sourceUrl, sourcePlatform,
     } = body;
 
     if (!name || sellingPrice == null || costPrice == null || startingQuantity == null) {
@@ -69,6 +69,8 @@ export async function POST(req: NextRequest) {
         lowStockLimit: lowStockLimit ? parseInt(lowStockLimit) : 10,
         trackingActive: trackingActive || false,
         trackingStartDate: trackingActive ? new Date() : null,
+        sourceUrl: sourceUrl || null,
+        sourcePlatform: sourcePlatform || null,
       },
     });
 

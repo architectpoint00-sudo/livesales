@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { createMovementIfNeeded } from '@/lib/quantity';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -21,12 +22,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     const newQuantity = body.currentQuantity != null ? parseInt(body.currentQuantity) : undefined;
-    const quantityChanged = newQuantity != null && newQuantity !== existing.currentQuantity;
 
     const updates: Record<string, unknown> = {};
     const fields = [
       'name', 'image', 'description', 'category', 'brand', 'sku',
-      'sellingPrice', 'costPrice', 'lowStockLimit', 'status',
+      'sellingPrice', 'costPrice', 'lowStockLimit', 'status', 'sourceUrl',
     ];
     for (const f of fields) {
       if (body[f] !== undefined) {
@@ -50,18 +50,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     const product = await prisma.$transaction(async (tx) => {
-      if (quantityChanged && existing.trackingActive) {
-        const diff = existing.currentQuantity - newQuantity!;
-        await tx.quantityMovement.create({
-          data: {
-            productId: id,
-            previousQuantity: existing.currentQuantity,
-            newQuantity: newQuantity!,
-            quantityDiff: diff,
-            estimatedRevenue: diff > 0 ? diff * existing.sellingPrice : 0,
-            estimatedProfit: diff > 0 ? diff * (existing.sellingPrice - existing.costPrice) : 0,
-          },
-        });
+      if (newQuantity != null) {
+        await createMovementIfNeeded(tx, existing, newQuantity);
       }
       return tx.product.update({ where: { id }, data: updates });
     });
