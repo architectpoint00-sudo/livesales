@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: livesales
+      POSTGRES_PASSWORD: livesales_password
+      POSTGRES_DB: livesales
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U livesales"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "postgresql://livesales:livesales_password@db:5432/livesales?schema=public"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
