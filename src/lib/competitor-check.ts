@@ -24,6 +24,14 @@ function slugFromUrl(url: string): string {
   return path.split('/').pop() || '';
 }
 
+// The Store API's `stock_quantity`/`manage_stock` fields are always null for anonymous requests
+// on every real store checked (verified against CarveMill, Nortechica, Nalgene, and Mr Vinyl —
+// including stores that certainly track exact inventory internally). WooCommerce redacts this
+// for anonymous requests just like Shopify does, so we don't rely on it. The one real number it
+// does expose publicly is `low_stock_remaining` — WooCommerce's own "Only X left" badge, which is
+// only populated once a product is at or under the merchant's configured low-stock threshold.
+// It's intermittent (absent while stock is healthy) but it's a real, merchant-reported quantity
+// when present, so we use it as the quantity signal.
 async function checkWooCommerceStock(url: string): Promise<Pick<StockCheckResult, 'quantity' | 'inStock'>> {
   const origin = new URL(url).origin;
   const slug = slugFromUrl(url);
@@ -32,8 +40,13 @@ async function checkWooCommerceStock(url: string): Promise<Pick<StockCheckResult
     const products = await res.json();
     const product = Array.isArray(products) ? products[0] : null;
     if (!product) return { quantity: null, inStock: null };
+    const quantity = typeof product.stock_quantity === 'number'
+      ? product.stock_quantity
+      : typeof product.low_stock_remaining === 'number'
+        ? product.low_stock_remaining
+        : null;
     return {
-      quantity: typeof product.stock_quantity === 'number' ? product.stock_quantity : null,
+      quantity,
       inStock: typeof product.is_in_stock === 'boolean' ? product.is_in_stock : null,
     };
   } catch {
